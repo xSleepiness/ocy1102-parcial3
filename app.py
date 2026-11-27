@@ -8,6 +8,7 @@ Las métricas de seguridad (logins fallidos y peticiones sospechosas) se ven en 
 import hmac
 import os
 import re
+import secrets
 import sqlite3
 import time
 
@@ -18,7 +19,10 @@ from werkzeug.security import check_password_hash
 app = Flask(__name__)
 
 ## Clave de la aplicación y credenciales del administrador.
-SECRET_KEY = "SecureDev-2024-clave-super-secreta"
+## VULN-04: la clave de la aplicación (firma de cookies de sesión) ya no está escrita en el código.
+## Se lee de la variable de entorno SECRET_KEY; si no existe, se genera una aleatoria de 256 bits
+## al iniciar (las sesiones no sobreviven a un reinicio, pero nadie puede conocer la clave).
+SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 ADMIN_USUARIO = "admin"
 ## VULN-03: la clave del administrador ya no está en el código ni en MD5. Se entrega como hash
 ## PBKDF2-SHA256 con sal (werkzeug.security.generate_password_hash) en la variable de entorno
