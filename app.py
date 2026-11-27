@@ -62,6 +62,21 @@ PATRONES_ATAQUE = {
     "path_traversal": re.compile(r"\.\./|\.\.\\|%2e%2e", re.I),
 }
 
+## VULN-07: cabeceras de seguridad HTTP (defensa en profundidad contra XSS, clickjacking y MIME sniffing).
+CABECERAS_SEGURIDAD = {
+    # Solo se cargan recursos del propio sitio; nadie puede enmarcar la página; los formularios
+    # solo pueden enviarse al propio sitio; sin plugins ni <base> externos.
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; form-action 'self'; "
+                               "base-uri 'self'; object-src 'none'",
+    "X-Frame-Options": "DENY",                      # anti-clickjacking para navegadores antiguos
+    "X-Content-Type-Options": "nosniff",            # el navegador respeta el Content-Type declarado
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "geolocation=(), camera=(), microphone=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Cache-Control": "no-store",
+}
+
 PORTADA = """<!doctype html>
 <html lang="es">
 <head><meta charset="utf-8"><title>Sistema Alumnos</title></head>
@@ -157,7 +172,7 @@ def antes_de_la_peticion():
 @app.after_request
 def despues_de_la_peticion(respuesta):
     """!
-    @brief Registra la métrica de cada petición atendida.
+    @brief Registra la métrica de cada petición atendida y agrega las cabeceras de seguridad.
     @param respuesta Respuesta que Flask enviará al cliente.
     @return La misma respuesta.
     """
@@ -165,6 +180,9 @@ def despues_de_la_peticion(respuesta):
     if endpoint != "/metrics":
         HTTP_PETICIONES.labels(request.method, endpoint, str(respuesta.status_code)).inc()
         HTTP_LATENCIA.labels(endpoint).observe(time.perf_counter() - g.get("inicio", time.perf_counter()))
+    # VULN-07: cabeceras de seguridad en TODAS las respuestas (incluidos los 404).
+    for cabecera, valor in CABECERAS_SEGURIDAD.items():
+        respuesta.headers.setdefault(cabecera, valor)
     return respuesta
 
 
