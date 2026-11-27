@@ -1,7 +1,7 @@
 # Dependencias de ejecución de "Sistema Alumnos".
 # Versiones fijadas y ANTIGUAS a propósito: auditarlas y actualizarlas es parte de la evaluación.
-Flask==2.2.2
-Werkzeug==2.2.2
-Jinja2==3.1.2
-gunicorn==21.2.0
-prometheus-client==0.17.1
+Flask==3.1.3
+Werkzeug==3.1.9
+Jinja2==3.1.6
+gunicorn==27.0.1
+prometheus-client==0.26.0
