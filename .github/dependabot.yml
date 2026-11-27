@@ -1,6 +1,7 @@
 # Dependabot: gestión automática de dependencias de "Sistema Alumnos".
-# Revisa requirements.txt y requirements-dev.txt todos los días y abre una PR por cada
-# paquete con una versión nueva o con una vulnerabilidad conocida (alertas de seguridad).
+# Revisa requirements.txt y requirements-dev.txt todos los días y agrupa las actualizaciones
+# en una sola PR (y las de seguridad en otra), porque Flask, Werkzeug y Jinja2 dependen entre sí
+# y deben subir juntos: por separado, una PR de Flask 3 sin Werkzeug 3 rompería la instalación.
 # Al fusionar la PR, Jenkins detecta el cambio en main (pollSCM) y el build verifica con
 # pruebas, Bandit, pip-audit y OWASP ZAP que la actualización no introduce vulnerabilidades.
 version: 2
@@ -16,3 +17,12 @@ updates:
     commit-message:
       prefix: "deps"
       include: "scope"
+    groups:
+      # Actualizaciones de versión: todas las dependencias en una sola PR
+      dependencias-pip:
+        applies-to: version-updates
+        patterns: ["*"]
+      # Actualizaciones de seguridad (alertas de Dependabot): todas en una sola PR
+      seguridad-pip:
+        applies-to: security-updates
+        patterns: ["*"]
