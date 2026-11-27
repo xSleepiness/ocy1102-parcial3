@@ -63,6 +63,14 @@ PATRONES_ATAQUE = {
     "path_traversal": re.compile(r"\.\./|\.\.\\|%2e%2e", re.I),
 }
 
+## Las series con etiquetas se crean en 0 al iniciar. Si una serie "nace" recién con el primer ataque
+## (valor 1, 31...), Prometheus no tiene un valor anterior y increase()/rate() la ven como 0: el
+## dashboard y la alerta no detectarían el PRIMER ataque después de cada despliegue.
+for _tipo in (*PATRONES_ATAQUE, "csrf", "fuerza_bruta"):
+    SOSPECHOSAS.labels(tipo=_tipo)
+for _status in ("200", "400", "401", "429"):
+    HTTP_PETICIONES.labels("POST", "/login", _status)
+
 ## VULN-07: cabeceras de seguridad HTTP (defensa en profundidad contra XSS, clickjacking y MIME sniffing).
 CABECERAS_SEGURIDAD = {
     # Solo se cargan recursos del propio sitio; nadie puede enmarcar la página; los formularios
