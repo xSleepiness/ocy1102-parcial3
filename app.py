@@ -12,7 +12,7 @@ import secrets
 import sqlite3
 import time
 
-from flask import Flask, Response, g, jsonify, render_template_string, request
+from flask import Flask, Response, g, jsonify, render_template_string, request, session
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from werkzeug.security import check_password_hash
 
@@ -29,6 +29,10 @@ ADMIN_USUARIO = "admin"
 ## ADMIN_CLAVE_HASH. Si no está definida, el acceso de administrador queda deshabilitado.
 ADMIN_CLAVE_HASH = os.environ.get("ADMIN_CLAVE_HASH", "")
 app.config["SECRET_KEY"] = SECRET_KEY
+## VULN-06: la cookie de sesión (que guarda el token anti-CSRF) no es legible desde JavaScript
+## y el navegador no la envía en peticiones que vienen de otros sitios.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
 ## Versión desplegada: la inyecta el pipeline (1.0.<build>+<commit>). Sirve para la trazabilidad.
 VERSION = os.environ.get("APP_VERSION", "dev")
@@ -75,11 +79,32 @@ PORTADA = """<!doctype html>
 </form>
 <h2>Acceso administrador</h2>
 <form action="/login" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input name="usuario" value="admin"> <input name="clave" type="password" value="">
   <button type="submit">Entrar</button>
 </form>
 </body>
 </html>"""
+
+
+def token_csrf():
+    """!
+    @brief VULN-06: entrega el token anti-CSRF de la sesión (lo crea la primera vez).
+    @return Token aleatorio de 256 bits que debe acompañar a cada POST del formulario de login.
+    """
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_urlsafe(32)
+    return session["csrf_token"]
+
+
+def csrf_valido():
+    """!
+    @brief VULN-06: comprueba (en tiempo constante) que el token enviado coincide con el de la sesión.
+    @return True si el formulario trae el token correcto.
+    """
+    esperado = session.get("csrf_token", "")
+    recibido = request.form.get("csrf_token", "")
+    return bool(esperado) and hmac.compare_digest(esperado.encode(), recibido.encode())
 
 
 def conectar():
@@ -149,7 +174,7 @@ def portada():
     @brief Portada HTML con enlaces y formularios del sistema.
     @return Página HTML.
     """
-    return render_template_string(PORTADA, version=VERSION)
+    return render_template_string(PORTADA, version=VERSION, csrf_token=token_csrf())
 
 
 @app.route("/hello")
@@ -230,8 +255,14 @@ def buscar_alumnos():
 def login():
     """!
     @brief Valida las credenciales del administrador enviadas por formulario.
-    @return JSON con el resultado; 401 si las credenciales no son válidas.
+    @return JSON con el resultado; 400 sin token anti-CSRF válido; 401 si las credenciales no son válidas.
     """
+    # VULN-06: se rechaza cualquier POST que no traiga el token anti-CSRF de la sesión
+    # (un sitio externo no puede leerlo, así que no puede forjar el formulario).
+    if not csrf_valido():
+        SOSPECHOSAS.labels(tipo="csrf").inc()
+        app.logger.warning("Login rechazado: token anti-CSRF ausente o inválido desde %s", request.remote_addr)
+        return jsonify({"error": "Solicitud inválida (token anti-CSRF)"}), 400
     usuario = request.form.get("usuario", "")
     clave = request.form.get("clave", "")
     # VULN-03: comparación en tiempo constante del usuario y verificación del hash con sal.
