@@ -1,2 +1,2 @@
 # Dependencias solo para pruebas (no se instalan en los despliegues).
-pytest==8.3.4
+pytest==9.2.0
