@@ -151,7 +151,9 @@ def hello():
     @return Página HTML con el saludo.
     """
     name = request.args.get("name", "visitante")
-    return f"<h1>Hola, {name}!</h1>"
+    # VULN-02: el nombre se inserta con una plantilla Jinja2, que escapa el HTML automáticamente
+    # (< > " ' & se convierten en entidades), así un <script> se muestra como texto y no se ejecuta.
+    return render_template_string("<h1>Hola, {{ name }}!</h1>", name=name)
 
 
 @app.route("/health")
