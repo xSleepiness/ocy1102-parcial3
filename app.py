@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 
 from flask import Flask, Response, g, jsonify, render_template_string, request, session
@@ -120,6 +121,55 @@ def csrf_valido():
     esperado = session.get("csrf_token", "")
     recibido = request.form.get("csrf_token", "")
     return bool(esperado) and hmac.compare_digest(esperado.encode(), recibido.encode())
+
+
+## VULN-08: límite de intentos de login por IP (protección contra fuerza bruta).
+MAX_FALLOS_LOGIN = int(os.environ.get("MAX_FALLOS_LOGIN", "5"))      # intentos fallidos permitidos...
+VENTANA_FALLOS_S = int(os.environ.get("VENTANA_FALLOS_S", "300"))    # ...dentro de esta ventana (s)
+_fallos_por_ip = {}
+_fallos_lock = threading.Lock()
+
+
+def _fallos_recientes(ip, ahora):
+    """!
+    @brief Devuelve (y depura) los instantes de los intentos fallidos de una IP dentro de la ventana.
+    """
+    recientes = [t for t in _fallos_por_ip.get(ip, []) if ahora - t < VENTANA_FALLOS_S]
+    if recientes:
+        _fallos_por_ip[ip] = recientes
+    else:
+        _fallos_por_ip.pop(ip, None)
+    return recientes
+
+
+def segundos_de_bloqueo(ip):
+    """!
+    @brief VULN-08: segundos que le quedan de bloqueo a una IP (0 si puede intentar).
+    """
+    ahora = time.monotonic()
+    with _fallos_lock:
+        recientes = _fallos_recientes(ip, ahora)
+        if len(recientes) < MAX_FALLOS_LOGIN:
+            return 0
+        return max(1, int(VENTANA_FALLOS_S - (ahora - recientes[0])))
+
+
+def registrar_fallo(ip):
+    """!
+    @brief VULN-08: anota un intento fallido de la IP.
+    """
+    ahora = time.monotonic()
+    with _fallos_lock:
+        _fallos_recientes(ip, ahora)
+        _fallos_por_ip.setdefault(ip, []).append(ahora)
+
+
+def limpiar_fallos(ip):
+    """!
+    @brief VULN-08: un login correcto reinicia el contador de la IP.
+    """
+    with _fallos_lock:
+        _fallos_por_ip.pop(ip, None)
 
 
 def conectar():
@@ -283,13 +333,26 @@ def login():
         return jsonify({"error": "Solicitud inválida (token anti-CSRF)"}), 400
     usuario = request.form.get("usuario", "")
     clave = request.form.get("clave", "")
+    ip = request.remote_addr or "desconocida"
+    # VULN-08: si esta IP acumuló demasiados intentos fallidos, se bloquea temporalmente (HTTP 429)
+    # sin siquiera revisar la clave. El intento cuenta como fallido para que se vea en Grafana.
+    espera = segundos_de_bloqueo(ip)
+    if espera:
+        LOGIN_FALLIDOS.inc()
+        SOSPECHOSAS.labels(tipo="fuerza_bruta").inc()
+        app.logger.warning("Login bloqueado por fuerza bruta desde %s (%s s restantes)", ip, espera)
+        respuesta = jsonify({"error": "Demasiados intentos fallidos. Intenta más tarde."})
+        respuesta.headers["Retry-After"] = str(espera)
+        return respuesta, 429
     # VULN-03: comparación en tiempo constante del usuario y verificación del hash con sal.
     usuario_ok = hmac.compare_digest(usuario.encode(), ADMIN_USUARIO.encode())
     if usuario_ok and ADMIN_CLAVE_HASH and check_password_hash(ADMIN_CLAVE_HASH, clave):
         LOGIN_EXITOSOS.inc()
+        limpiar_fallos(ip)
         return jsonify({"mensaje": "Bienvenido, administrador"})
     LOGIN_FALLIDOS.inc()
-    app.logger.warning("Login fallido para el usuario '%s' desde %s", usuario, request.remote_addr)
+    registrar_fallo(ip)
+    app.logger.warning("Login fallido para el usuario %r desde %s", usuario, ip)
     return jsonify({"error": "Credenciales inválidas"}), 401
 
 
