@@ -1,0 +1,18 @@
+# Dependabot: gestión automática de dependencias de "Sistema Alumnos".
+# Revisa requirements.txt y requirements-dev.txt todos los días y abre una PR por cada
+# paquete con una versión nueva o con una vulnerabilidad conocida (alertas de seguridad).
+# Al fusionar la PR, Jenkins detecta el cambio en main (pollSCM) y el build verifica con
+# pruebas, Bandit, pip-audit y OWASP ZAP que la actualización no introduce vulnerabilidades.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "daily"
+      time: "08:00"
+      timezone: "America/Santiago"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps"
+      include: "scope"
