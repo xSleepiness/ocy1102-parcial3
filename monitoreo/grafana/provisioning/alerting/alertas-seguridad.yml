@@ -1,0 +1,101 @@
+# Reglas de alerta de seguridad sobre PRODUCCIÓN (Grafana Unified Alerting).
+# Se evalúan cada 10 s con las métricas que expone la app en /metrics.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: seguridad-produccion
+    folder: Sistema Alumnos
+    interval: 10s
+    rules:
+      # 1) Fuerza bruta: más de 10 logins fallidos en 2 minutos
+      - uid: alerta-fuerza-bruta
+        title: "Fuerza bruta en /login (produccion)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ev3
+            model:
+              refId: A
+              expr: 'sum(increase(login_fallidos_total{job="produccion"}[2m]))'
+              instant: true
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [10] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severidad: critica, categoria: autenticacion }
+        annotations:
+          summary: "Posible ataque de fuerza bruta contra /login en producción"
+          description: "{{ $values.B }} intentos de login fallidos en los últimos 2 minutos (umbral: 10)."
+
+      # 2) Inyección / XSS / path traversal / CSRF: cualquier petición con patrón de ataque
+      - uid: alerta-peticiones-sospechosas
+        title: "Peticiones con patrones de ataque (produccion)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ev3
+            model:
+              refId: A
+              expr: 'sum(increase(peticiones_sospechosas_total{job="produccion"}[2m]))'
+              instant: true
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        for: 0s
+        noDataState: OK
+        execErrState: Error
+        labels: { severidad: alta, categoria: inyeccion }
+        annotations:
+          summary: "Se detectaron peticiones con patrones de ataque (SQLi/XSS/CSRF) en producción"
+          description: "{{ $values.B }} peticiones sospechosas en los últimos 2 minutos."
+
+      # 3) Disponibilidad: producción no responde a Prometheus
+      - uid: alerta-produccion-caida
+        title: "Produccion no responde"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ev3
+            model:
+              refId: A
+              expr: 'up{job="produccion"}'
+              instant: true
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 1m
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severidad: critica, categoria: disponibilidad }
+        annotations:
+          summary: "Producción (jenkins:5000) no responde"
+          description: "Prometheus no logra leer /metrics de producción hace más de 1 minuto."

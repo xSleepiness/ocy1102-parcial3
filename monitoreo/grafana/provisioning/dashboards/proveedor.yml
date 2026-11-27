@@ -1,0 +1,11 @@
+# Carga los dashboards (.json) de esta misma carpeta en la carpeta "Sistema Alumnos" de Grafana.
+apiVersion: 1
+providers:
+  - name: sistema-alumnos
+    folder: Sistema Alumnos
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

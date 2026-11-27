@@ -1,0 +1,13 @@
+# Fuente de datos de Grafana: el Prometheus del laboratorio, que recolecta cada 5 s las
+# métricas de producción (jenkins:5000) y staging (jenkins:5001).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus-ev3
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 5s
