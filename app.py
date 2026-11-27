@@ -202,11 +202,17 @@ def buscar_alumnos():
     @return JSON con los alumnos encontrados.
     """
     nombre = request.args.get("nombre", "")
-    consulta = f"SELECT * FROM alumnos WHERE nombre LIKE '%{nombre}%'"
+    # VULN-01: consulta parametrizada. El texto del usuario viaja como DATO (?), nunca como parte del SQL.
+    # Se escapan además los comodines de LIKE (% y _) para que se busquen de forma literal.
+    patron = "%" + nombre.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     try:
-        filas = conectar().execute(consulta).fetchall()
-    except sqlite3.Error as error:
-        return jsonify({"error": str(error), "consulta": consulta}), 500
+        filas = conectar().execute(
+            "SELECT * FROM alumnos WHERE nombre LIKE ? ESCAPE '\\' ORDER BY id", (patron,)
+        ).fetchall()
+    except sqlite3.Error:
+        # VULN-01 (CWE-209): el detalle del error se registra en el log, no se devuelve al cliente.
+        app.logger.exception("Error de base de datos en /alumnos/buscar")
+        return jsonify({"error": "No se pudo completar la búsqueda"}), 500
     return jsonify([dict(f) for f in filas])
 
 
